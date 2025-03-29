@@ -183,15 +183,12 @@ static void *worker_func(void *arg) {
     return NULL;
 }
 
-// -------------------------
-// crack_hashed_passwords Function (Main Entry Point)
-// -------------------------
 void crack_hashed_passwords(char *password_list, char *hashed_list, char *output) {
     FILE *fp;
-    char password[MAX_PASS_SIZE];      // passwords have at most 255 characters
-    char hex_hash[2*KEEP+1];           // hashed passwords in hex
+    char password[MAX_PASS_SIZE]; 
+    char hex_hash[2*KEEP+1];           
 
-    // --- Load hashed passwords ---
+    // load hashed passwords
     n_hashed = 0;
     fp = fopen(hashed_list, "r");
     assert(fp != NULL);
@@ -207,15 +204,15 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     }
     fclose(fp);
 
-    // --- Build hash table for fast lookup ---
+    // build hash table for fast lookup 
     build_hash_table();
 
-    // --- Create Worker Threads ---
+    // create worker threads 
     pthread_t threads[WORKER_THREADS];
     for (int i = 0; i < WORKER_THREADS; i++)
         pthread_create(&threads[i], NULL, worker_func, NULL);
 
-    // --- Load common passwords and enqueue them ---
+    // load common passwords and enqueue them
     fp = fopen(password_list, "r");
     assert(fp != NULL);
     while(fscanf(fp, "%s", password) == 1)
@@ -228,11 +225,11 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     pthread_cond_broadcast(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
 
-    // --- Wait for all worker threads to finish ---
+    // wait for all worker threads to finish
     for (int i = 0; i < WORKER_THREADS; i++)
         pthread_join(threads[i], NULL);
 
-    // --- Write results ---
+    // write results
     fp = fopen(output, "w");
     assert(fp != NULL);
     for (int i = 0; i < n_hashed; i++) {
@@ -243,7 +240,7 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     }
     fclose(fp);
 
-    // --- Release allocated memory ---
+    // release allocated memory
     for (int i = 0; i < n_hashed; i++)
         free(cracked_hashes[i].password);
     free(cracked_hashes);
