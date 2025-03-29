@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include "hash_functions.h"
 
-#define KEEP 16                 // only the first 16 bytes of a hash are kept
+#define KEEP 16                
 #define MAX_PASS_SIZE 256
 #define HASH_TABLE_SIZE 1024
 #define WORKER_THREADS 11         // ensures total threads (including main) <= 12
@@ -36,6 +36,7 @@ typedef struct node {
     struct node *next;
 } node_t;
 
+//initialize queue for threading
 static node_t *queue_head = NULL;
 static node_t *queue_tail = NULL;
 static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -50,6 +51,7 @@ static void enqueue(char *password) {
     new_node->password[MAX_PASS_SIZE-1] = '\0';
     new_node->next = NULL;
     
+    // Lock the queue for thread safety
     pthread_mutex_lock(&queue_mutex);
     if(queue_tail == NULL) {
         queue_head = queue_tail = new_node;
@@ -174,9 +176,10 @@ static void *worker_func(void *arg) {
     return NULL;
 }
 
+
 void crack_hashed_passwords(char *password_list, char *hashed_list, char *output) {
     FILE *fp;
-    char password[MAX_PASS_SIZE]; 
+    char password[MAX_PASS_SIZE];
     char hex_hash[2*KEEP+1];           
 
     // load hashed passwords
@@ -195,22 +198,22 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     }
     fclose(fp);
 
-    // build hash table for fast lookup 
+    // build hash table for fast lookup
     build_hash_table();
 
-    // create worker threads 
+    // create worker threads (New functionality added)
     pthread_t threads[WORKER_THREADS];
     for (int i = 0; i < WORKER_THREADS; i++)
         pthread_create(&threads[i], NULL, worker_func, NULL);
-
+    
     // load common passwords and enqueue them
     fp = fopen(password_list, "r");
     assert(fp != NULL);
     while(fscanf(fp, "%s", password) == 1)
-        enqueue(password);
+        enqueue(password); // Previously, passwords were hashed immediately inside the loop
     fclose(fp);
 
-    // Signal that no more passwords will be enqueued
+    // Signal that no more passwords will be enqueued 
     pthread_mutex_lock(&queue_mutex);
     finished_reading = 1;
     pthread_cond_broadcast(&queue_cond);
@@ -235,6 +238,8 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     for (int i = 0; i < n_hashed; i++)
         free(cracked_hashes[i].password);
     free(cracked_hashes);
+
+    //free hash_table preveting memory leaks
     free_hash_table();
 
     // Cleanup any remaining queue nodes (should be none)
@@ -244,4 +249,3 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
         free(temp);
     }
 }
-
