@@ -10,9 +10,6 @@
 #define HASH_TABLE_SIZE 1024
 #define WORKER_THREADS 11         // ensures total threads (including main) <= 12
 
-// -------------------------
-// Original Structures and Globals
-// -------------------------
 struct cracked_hash {
     char hash[2*KEEP+1];
     char *password, *alg;
@@ -33,9 +30,7 @@ int compare_hashes(char *a, char *b) {
 static int n_hashed;
 static struct cracked_hash *cracked_hashes;
 
-// -------------------------
-// Work Queue Definitions
-// -------------------------
+// worker queue definition
 typedef struct node {
     char password[MAX_PASS_SIZE];
     struct node *next;
@@ -82,11 +77,9 @@ static node_t *dequeue(void) {
     return node;
 }
 
-// -------------------------
 // Hash Table for Hashed Passwords with Per-Bucket Locks
-// -------------------------
 typedef struct hash_node {
-    int index;              // index in cracked_hashes
+    int index;
     struct hash_node *next;
 } hash_node_t;
 
@@ -133,9 +126,7 @@ static void free_hash_table(void) {
     }
 }
 
-// -------------------------
 // Worker Thread Function
-// -------------------------
 static void *worker_func(void *arg) {
     (void)arg; // unused
     char hex_hash[2*KEEP+1];
