@@ -6,14 +6,16 @@
 #include "hash_functions.h"
 
 #define KEEP 16                
-#define MAX_PASS_SIZE 256
+#define MAX_SIZE 256
 #define HASH_TABLE_SIZE 1024
-#define WORKER_THREADS 11         // ensures total threads (including main) <= 12
+#define WThreads 11         // ensures total threads (including main) <= 12
 
 struct cracked_hash {
     char hash[2*KEEP+1];
     char *password, *alg;
 };
+
+// Uses a queue to distribute password cracking tasks across multiple threads.
 
 typedef unsigned char * (*hashing)(unsigned char *, unsigned int);
 
@@ -32,7 +34,7 @@ static struct cracked_hash *cracked_hashes;
 
 // worker queue definition
 typedef struct node {
-    char password[MAX_PASS_SIZE];
+    char password[MAX_SIZE];
     struct node *next;
 } node_t;
 
@@ -41,14 +43,14 @@ static node_t *queue_head = NULL;
 static node_t *queue_tail = NULL;
 static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
-static int finished_reading = 0;
+static int finished = 0;
 
 // Enqueue a password into the work queue
 static void enqueue(char *password) {
     node_t *new_node = malloc(sizeof(node_t));
     assert(new_node != NULL);
-    strncpy(new_node->password, password, MAX_PASS_SIZE-1);
-    new_node->password[MAX_PASS_SIZE-1] = '\0';
+    strncpy(new_node->password, password, MAX_SIZE-1);
+    new_node->password[MAX_SIZE-1] = '\0';
     new_node->next = NULL;
     
     // Lock the queue for thread safety
@@ -64,9 +66,10 @@ static void enqueue(char *password) {
 }
 
 // Dequeue a password from the work queue; returns NULL if finished and queue empty
+// Worker threads stop when the queue is empty and "finished" is set.
 static node_t *dequeue(void) {
     pthread_mutex_lock(&queue_mutex);
-    while(queue_head == NULL && !finished_reading)
+    while(queue_head == NULL && !finished)
         pthread_cond_wait(&queue_cond, &queue_mutex);
     node_t *node = NULL;
     if(queue_head != NULL) {
@@ -89,6 +92,10 @@ static hash_node_t *hash_table[HASH_TABLE_SIZE];
 static pthread_mutex_t bucket_locks[HASH_TABLE_SIZE];  // one lock per bucket
 
 // djb2 hash function for strings
+// A hash table (using DJB2) speeds up lookups, with per-bucket locks for thread safety.
+//i found this method in stackoverflow it was an easy way to implement a hash function that is 
+//also very efficient and time saving
+//I reference such code and implemented it myself in here.
 static unsigned long djb2(const char *str) {
     unsigned long hash = 5381;
     int c;
@@ -129,9 +136,11 @@ static void free_hash_table(void) {
 }
 
 // Worker Thread Function
+// Worker threads dequeue passwords, compute hashes using different algorithms, and check for matches.
 static void *worker_func(void *arg) {
     (void)arg; // unused
     char hex_hash[2*KEEP+1];
+
     // Precomputed lookup table for hex digits
     static const char hex_digits[] = "0123456789abcdef";
     
@@ -176,10 +185,10 @@ static void *worker_func(void *arg) {
     return NULL;
 }
 
-
+// The main thread reads passwords, enqueues them, and signals workers when done.
 void crack_hashed_passwords(char *password_list, char *hashed_list, char *output) {
     FILE *fp;
-    char password[MAX_PASS_SIZE];
+    char password[MAX_SIZE];
     char hex_hash[2*KEEP+1];           
 
     // load hashed passwords
@@ -202,8 +211,8 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     build_hash_table();
 
     // create worker threads (New functionality added)
-    pthread_t threads[WORKER_THREADS];
-    for (int i = 0; i < WORKER_THREADS; i++)
+    pthread_t threads[Wthreads];
+    for (int i = 0; i < Wthreads; i++)
         pthread_create(&threads[i], NULL, worker_func, NULL);
     
     // load common passwords and enqueue them
@@ -215,15 +224,16 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
 
     // Signal that no more passwords will be enqueued 
     pthread_mutex_lock(&queue_mutex);
-    finished_reading = 1;
+    finished = 1;
     pthread_cond_broadcast(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
 
     // wait for all worker threads to finish
-    for (int i = 0; i < WORKER_THREADS; i++)
+    for (int i = 0; i < Wthreads; i++)
         pthread_join(threads[i], NULL);
 
-    // write results
+    // write results out 
+    // Results (cracked passwords and their algorithms) are written to an output file.
     fp = fopen(output, "w");
     assert(fp != NULL);
     for (int i = 0; i < n_hashed; i++) {
